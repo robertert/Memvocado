@@ -1,13 +1,23 @@
 import { StatusBar } from "expo-status-bar";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  Alert,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { Colors, Fonts } from "../../constants/colors";
 import { LinearGradient } from "@tamagui/linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image, Input } from "tamagui";
-import { auth } from "../../firebase";
+import { auth, db } from "../../firebase";
 import { signInWithEmailAndPassword } from "firebase/auth";
-import { useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import { router } from "expo-router";
+import Spinner from "react-native-loading-spinner-overlay";
+import { UserContext } from "../../store/user-context";
+import { collection, getDoc, getDocs, query, where } from "firebase/firestore";
 
 export default function authLogin() {
   const safeArea = useSafeAreaInsets();
@@ -15,12 +25,37 @@ export default function authLogin() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+
+  const userCtx = useContext(UserContext);
+
+  useEffect(() => {
+    let time;
+    if (isLoading) {
+      time = setTimeout(() => {
+        Alert.alert("Oops", "Something went wrong");
+        setIsLoading(false);
+      }, 10000);
+    }
+    return () => clearTimeout(time);
+  }, [isLoading]);
 
   async function logInHandler() {
     try {
+      setIsLoading(true);
       const res = await signInWithEmailAndPassword(auth, email, password);
-      console.log(res.user);
+      const data = await getDocs(
+        query(collection(db, `users`), where("email", "==", email))
+      );
+      if (data.empty) {
+        throw Error;
+      }
+      const user = data.docs[0];
+      userCtx.getUser(user.data().name, user.id);
+      router.replace("../tabs");
+      setIsLoading(false);
     } catch (e) {
+      setIsLoading(false);
       console.log(e.code);
       if (
         e.code == "auth/invalid-email" ||
@@ -40,7 +75,7 @@ export default function authLogin() {
   }
 
   function createHander() {
-    router.navigate("./authSignUp");
+    router.replace("./authSignUp");
   }
   function forgotPassHandler() {
     router.navigate("./resetPassword");
@@ -99,6 +134,7 @@ export default function authLogin() {
             </Text>
           </Pressable>
         </View>
+        <Spinner visible={isLoading} />
       </View>
     </LinearGradient>
   );

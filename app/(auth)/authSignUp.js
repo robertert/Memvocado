@@ -1,14 +1,26 @@
 import { StatusBar } from "expo-status-bar";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  Alert,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { Colors, Fonts } from "../../constants/colors";
 import { LinearGradient } from "@tamagui/linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "tamagui";
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import { router } from "expo-router";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { auth, db } from "../../firebase";
-import { addDoc, collection } from "firebase/firestore";
+import { addDoc, collection, getDocs, query, where } from "firebase/firestore";
+import { UserContext } from "../../store/user-context";
+import Spinner from "react-native-loading-spinner-overlay";
+
+const randomName = `user${Math.random() * 100 + Date.now()}`;
+
 export default function authSignin() {
   const safeArea = useSafeAreaInsets();
 
@@ -19,14 +31,48 @@ export default function authSignin() {
   const [invalidEmail, setInvalidEmail] = useState(false);
   const [invalidPassword, setInvalidPassword] = useState(false);
   const [invalidConfirmPassword, setInvalidConfirmPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isFirstLoading, setIsFirstLoading] = useState(true);
+
+  const userCtx = useContext(UserContext);
+
+  async function authent(user) {
+    const data = await getDocs(
+      query(collection(db, `users`), where("email", "==", user.email))
+    );
+    const userData = { id: data.docs[0].id, ...data.docs[0].data() };
+    userCtx.getUser(userData.name, userData.id);
+  }
+
+  useEffect(() => {
+    auth.onAuthStateChanged(async (user) => {
+      if (user) {
+        await authent(user);
+        router.replace("../tabs");
+      } else {
+        setIsFirstLoading(false);
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    let time;
+    if (isLoading) {
+      time = setTimeout(() => {
+        Alert.alert("Oops", "Something went wrong");
+        setIsLoading(false);
+      }, 10000);
+    }
+    return () => clearTimeout(time);
+  }, [isLoading]);
 
   async function signUpHandler() {
-    router.replace("./signUp2");
     if (validateRegister()) {
       try {
+        setIsLoading(true);
         const res = await createUserWithEmailAndPassword(auth, email, password);
-        const newUser = await addDoc(collection(db,"users"),{
-          name: `user${Math.random() * 100 + Date.now()}`,
+        const newUser = await addDoc(collection(db, "users"), {
+          name: randomName,
           email: email,
           friends: [],
           pending: [],
@@ -36,12 +82,13 @@ export default function authSignin() {
           settings: {
             language: "en",
             allowNotifications: true,
-            
           },
           lastLogin: new Date(),
           createdAt: new Date(),
         });
-        
+        userCtx.getUser(randomName, newUser.id);
+        setIsLoading(false);
+        router.replace("./signUp2");
       } catch (e) {
         if (e.code === "auth/invalid-email") {
           setMessage("Invalid email");
@@ -79,7 +126,7 @@ export default function authSignin() {
   }
 
   function emailChanged(text) {
-    setInvalidEmail(false)
+    setInvalidEmail(false);
     setMessage("");
     setEmail(text);
   }
@@ -95,8 +142,26 @@ export default function authSignin() {
   }
 
   function logInHandler() {
-    router.navigate("./authLogin");
+    router.replace("./authLogin");
   }
+  if (isFirstLoading) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: Colors.primary_100,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Image
+          src={require("../../assets/memvocadoicon.png")}
+          style={{ height: 200, width: 200 }}
+        />
+      </View>
+    );
+  }
+
   return (
     <LinearGradient
       start={{ x: 0, y: 0 }}
@@ -114,7 +179,12 @@ export default function authSignin() {
         <View style={styles.formContainer}>
           <View style={styles.labelContainer}>
             <Text style={styles.label}>Email</Text>
-            <View style={[styles.inputContainer,invalidEmail && styles.invalidContainer]}>
+            <View
+              style={[
+                styles.inputContainer,
+                invalidEmail && styles.invalidContainer,
+              ]}
+            >
               <TextInput
                 onChangeText={emailChanged}
                 value={email}
@@ -122,11 +192,15 @@ export default function authSignin() {
                 style={styles.input}
               />
             </View>
-            
           </View>
           <View style={styles.labelContainer}>
             <Text style={styles.label}>Password</Text>
-            <View style={[styles.inputContainer,invalidPassword && styles.invalidContainer]}>
+            <View
+              style={[
+                styles.inputContainer,
+                invalidPassword && styles.invalidContainer,
+              ]}
+            >
               <TextInput
                 onChangeText={passwordChanged}
                 value={password}
@@ -134,10 +208,15 @@ export default function authSignin() {
               />
             </View>
           </View>
-       
+
           <View style={styles.labelContainer}>
             <Text style={styles.label}>Confirm password</Text>
-            <View style={[styles.inputContainer,invalidConfirmPassword && styles.invalidContainer]}>
+            <View
+              style={[
+                styles.inputContainer,
+                invalidConfirmPassword && styles.invalidContainer,
+              ]}
+            >
               <TextInput
                 onChangeText={confirmPasswordChanged}
                 value={confirmPassword}
@@ -145,9 +224,7 @@ export default function authSignin() {
               />
             </View>
           </View>
-          {message && (
-            <Text style={styles.errorMessage}>{message}</Text>
-          )}
+          {message && <Text style={styles.errorMessage}>{message}</Text>}
           <Pressable onPress={signUpHandler}>
             <View style={styles.buttonContainer}>
               <Text style={styles.buttonText}>Sign up</Text>
@@ -157,6 +234,7 @@ export default function authSignin() {
             <Text style={styles.info}>Already have an account? Log in</Text>
           </Pressable>
         </View>
+        <Spinner visible={isLoading} />
       </View>
     </LinearGradient>
   );
@@ -185,7 +263,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 55,
     color: Colors.primary_700,
-    fontFamily: "Peace Sans",
+    fontFamily: Fonts.primary,
   },
   label: {
     fontSize: 18,
@@ -241,5 +319,5 @@ const styles = StyleSheet.create({
   invalidContainer: {
     borderWidth: 2,
     borderColor: "red",
-  }
+  },
 });

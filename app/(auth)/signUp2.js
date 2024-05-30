@@ -11,7 +11,7 @@ import { Colors, Fonts } from "../../constants/colors";
 import { LinearGradient } from "@tamagui/linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "tamagui";
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import { router } from "expo-router";
 import { Dialog } from "tamagui";
 import { MaterialIcons } from "@expo/vector-icons";
@@ -25,6 +25,16 @@ import {
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import Divider from "../../ui/Divider";
 import { Overlay } from "@rneui/themed";
+import {
+  collection,
+  doc,
+  getDocs,
+  query,
+  updateDoc,
+  where,
+} from "firebase/firestore";
+import { db, storage } from "../../firebase";
+import { UserContext } from "../../store/user-context";
 
 export default function singUp2() {
   const safeArea = useSafeAreaInsets();
@@ -33,7 +43,9 @@ export default function singUp2() {
   const [image, setImage] = useState();
   const [invalidUsername, setInvalidUsername] = useState(false);
   const [username, setUsername] = useState("");
-  const [message,setMessage] = useState("");
+  const [message, setMessage] = useState("");
+
+  const userCtx = useContext(UserContext);
 
   const [cameraPermissionInformation, requestPermission] =
     useCameraPermissions();
@@ -88,8 +100,28 @@ export default function singUp2() {
     setUsername(text);
   }
 
-  function nextHandler(){
-    setMessage("This username is taken")
+  async function nextHandler() {
+    try {
+      const data = await getDocs(
+        query(collection(db, `users`), where("name", "==", username))
+      );
+      if (!data.empty) {
+        setMessage("This username is taken");
+      } else {
+        updateDoc(doc(db, `users/${userCtx.id}`), {
+          name: username,
+        });
+        const fetchRes = await fetch(image);
+        const blob = await fetchRes.blob();
+        await uploadBytesResumable(
+          ref(storage, `users/${userCtx.id}/photo.jpg`),
+          blob
+        );
+        router.navigate("./signUp3");
+      }
+    } catch (e) {
+      console.log(e);
+    }
   }
 
   return (
@@ -100,15 +132,19 @@ export default function singUp2() {
     >
       <View style={[styles.container, { paddingTop: safeArea.top }]}>
         <View style={styles.imageContainer}>
-        <Pressable onPress={toggleIsVisible}>
-          <Image
-            style={styles.image}
-            source={
-              image ? { uri: image } : require("../../assets/memvocadoicon.png")
-            }
-          />
-          <Text style={styles.imageText}>Click here to set profile picture</Text>
-        </Pressable>
+          <Pressable onPress={toggleIsVisible}>
+            <Image
+              style={styles.image}
+              source={
+                image
+                  ? { uri: image }
+                  : require("../../assets/memvocadoicon.png")
+              }
+            />
+            <Text style={styles.imageText}>
+              Click here to set profile picture
+            </Text>
+          </Pressable>
         </View>
         <View style={styles.form}>
           <View style={styles.labelContainer}>
@@ -126,15 +162,13 @@ export default function singUp2() {
               />
             </View>
           </View>
-          {message && (
-            <Text style={styles.errorMessage}>{message}</Text>
-          )}
+          {message && <Text style={styles.errorMessage}>{message}</Text>}
         </View>
         <Pressable onPress={nextHandler}>
-            <View style={styles.buttonContainer}>
-              <Text style={styles.buttonText}>Next</Text>
-            </View>
-          </Pressable>
+          <View style={styles.buttonContainer}>
+            <Text style={styles.buttonText}>Next</Text>
+          </View>
+        </Pressable>
         <Overlay
           isVisible={isVisible}
           onBackdropPress={toggleIsVisible}
@@ -189,9 +223,9 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 55,
     color: Colors.primary_700,
-    fontFamily: "Peace Sans",
+    fontFamily: Fonts.primary,
   },
-  imageContainer:{
+  imageContainer: {
     alignItems: "center",
     marginTop: 80,
     marginBottom: 40,
@@ -210,7 +244,7 @@ const styles = StyleSheet.create({
     color: Colors.primary_700,
   },
   labelContainer: {
-    marginTop:20,
+    marginTop: 20,
     marginVertical: 10,
   },
 
@@ -220,7 +254,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary_500,
     borderRadius: 100,
   },
-  form:{
+  form: {
     width: "70%",
   },
   input: {
